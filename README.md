@@ -1,7 +1,7 @@
 # WebCrawlerAPI Standalone Java SDK
 
-[![Test](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/test.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/test.yml)
-[![Release](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/release.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/release.yml)
+[![Test](https://github.com/WebCrawlerAPI/java-sdk/actions/workflows/test.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/test.yml)
+[![Release](https://github.com/WebCrawlerAPI/java-sdk/actions/workflows/release.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/release.yml)
 
 A simple, dependency-free Java client for WebCrawlerAPI that can be copy-pasted into any Java 17+ project.
 
