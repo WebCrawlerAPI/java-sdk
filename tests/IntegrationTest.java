@@ -221,9 +221,13 @@ public class IntegrationTest {
     }
 
     private static String maskApiKey(String apiKey) {
-        if (apiKey == null || apiKey.length() <= 8) {
+        if (apiKey == null || apiKey.length() == 0) {
             return "***";
         }
-        return apiKey.substring(0, 4) + "..." + apiKey.substring(apiKey.length() - 4);
+        // Only show first 2 characters for better security in CI logs
+        if (apiKey.length() <= 2) {
+            return "***";
+        }
+        return apiKey.substring(0, 2) + "***";
     }
 }
