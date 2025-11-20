@@ -300,12 +300,22 @@ public class WebCrawlerAPI {
     private ScrapeResult parseScrapeResult(String json) {
         ScrapeResult result = new ScrapeResult();
         result.status = extractJsonValue(json, "status");
-        result.content = extractJsonValue(json, "content");
-        result.html = extractJsonValue(json, "html");
+        result.html = extractJsonValue(json, "raw_content");
         result.markdown = extractJsonValue(json, "markdown");
-        result.cleaned = extractJsonValue(json, "cleaned");
+        result.cleaned = extractJsonValue(json, "cleaned_content");
         result.url = extractJsonValue(json, "url");
         result.pageStatusCode = extractJsonInt(json, "page_status_code");
+
+        // Map content field based on available data
+        // V2 API returns specific fields (markdown, raw_content, cleaned_content) instead of generic "content"
+        if (result.markdown != null) {
+            result.content = result.markdown;
+        } else if (result.html != null) {
+            result.content = result.html;
+        } else if (result.cleaned != null) {
+            result.content = result.cleaned;
+        }
+
         return result;
     }
 
@@ -355,7 +365,7 @@ public class WebCrawlerAPI {
                 if (depth == 0 && objStart != -1) {
                     String itemJson = itemsJson.substring(objStart, i + 1);
                     CrawlItem item = new CrawlItem();
-                    item.url = extractJsonValue(itemJson, "url");
+                    item.url = extractJsonValue(itemJson, "original_url");
                     item.status = extractJsonValue(itemJson, "status");
                     item.rawContentUrl = extractJsonValue(itemJson, "raw_content_url");
                     item.cleanedContentUrl = extractJsonValue(itemJson, "cleaned_content_url");
