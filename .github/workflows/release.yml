@@ -37,11 +37,12 @@ jobs:
           ./run-tests.sh
 
       - name: Run integration tests
-        if: ${{ secrets.API_KEY != '' }}
+        if: ${{ env.API_KEY != '' }}
         env:
           API_KEY: ${{ secrets.API_KEY }}
           API_BASE_URL: https://api.webcrawlerapi.com
         run: |
+          echo "::add-mask::${{ secrets.API_KEY }}"
           cd tests
           ./run-tests.sh
 
