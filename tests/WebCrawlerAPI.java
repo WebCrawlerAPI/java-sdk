@@ -191,7 +191,7 @@ public class WebCrawlerAPI {
         jsonBody.append("{");
         jsonBody.append("\"url\":\"").append(escapeJson(url)).append("\"");
         if (scrapeType != null) {
-            jsonBody.append(",\"scrape_type\":\"").append(escapeJson(scrapeType)).append("\"");
+            jsonBody.append(",\"output_format\":\"").append(escapeJson(scrapeType)).append("\"");
         }
         jsonBody.append("}");
 
