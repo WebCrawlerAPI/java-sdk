@@ -38,6 +38,7 @@ public class WebCrawlerAPI {
     private static final String DEFAULT_BASE_URL = "https://api.webcrawlerapi.com";
     private static final int DEFAULT_POLL_DELAY_MS = 5000;
     private static final int DEFAULT_MAX_POLLS = 100;
+    private static final int DEFAULT_MAX_AGE = 0;
     private static final String SDK_VERSION = "1.0.0-standalone";
 
     private final String apiKey;
@@ -74,7 +75,7 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public CrawlResult crawl(String url, String scrapeType, int itemsLimit) throws WebCrawlerAPIException {
-        return crawl(url, scrapeType, itemsLimit, DEFAULT_MAX_POLLS);
+        return crawl(url, scrapeType, itemsLimit, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
@@ -88,6 +89,21 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public CrawlResult crawl(String url, String scrapeType, int itemsLimit, int maxPolls) throws WebCrawlerAPIException {
+        return crawl(url, scrapeType, itemsLimit, maxPolls, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Crawl a website with custom max polls and max_age cache control
+     *
+     * @param url The URL to crawl
+     * @param scrapeType Type of content to extract
+     * @param itemsLimit Maximum number of pages to crawl
+     * @param maxPolls Maximum number of polling attempts
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return CrawlResult containing job details and crawled items
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public CrawlResult crawl(String url, String scrapeType, int itemsLimit, int maxPolls, int maxAge) throws WebCrawlerAPIException {
         // Build request body
         StringBuilder jsonBody = new StringBuilder();
         jsonBody.append("{");
@@ -96,6 +112,7 @@ public class WebCrawlerAPI {
             jsonBody.append(",\"scrape_type\":\"").append(escapeJson(scrapeType)).append("\"");
         }
         jsonBody.append(",\"items_limit\":").append(itemsLimit);
+        jsonBody.append(",\"max_age\":").append(maxAge);
         jsonBody.append("}");
 
         // Start crawl job
@@ -141,7 +158,7 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public ScrapeResult scrape(String url, String scrapeType) throws WebCrawlerAPIException {
-        return scrape(url, scrapeType, DEFAULT_MAX_POLLS);
+        return scrape(url, scrapeType, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
@@ -154,7 +171,21 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public ScrapeResult scrape(String url, String scrapeType, int maxPolls) throws WebCrawlerAPIException {
-        String scrapeId = scrapeAsync(url, scrapeType);
+        return scrape(url, scrapeType, maxPolls, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Scrape a single page with custom max polls and max_age cache control
+     *
+     * @param url The URL to scrape
+     * @param scrapeType Type of content to extract
+     * @param maxPolls Maximum number of polling attempts
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return ScrapeResult containing the scraped content
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public ScrapeResult scrape(String url, String scrapeType, int maxPolls, int maxAge) throws WebCrawlerAPIException {
+        String scrapeId = scrapeAsync(url, scrapeType, maxAge);
 
         // Poll for completion
         ScrapeResult result = null;
@@ -186,6 +217,19 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public String scrapeAsync(String url, String scrapeType) throws WebCrawlerAPIException {
+        return scrapeAsync(url, scrapeType, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Start a scrape job asynchronously with max_age cache control
+     *
+     * @param url The URL to scrape
+     * @param scrapeType Type of content to extract
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return Scrape ID that can be used to check status later
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public String scrapeAsync(String url, String scrapeType, int maxAge) throws WebCrawlerAPIException {
         // Build request body
         StringBuilder jsonBody = new StringBuilder();
         jsonBody.append("{");
@@ -193,6 +237,7 @@ public class WebCrawlerAPI {
         if (scrapeType != null) {
             jsonBody.append(",\"output_format\":\"").append(escapeJson(scrapeType)).append("\"");
         }
+        jsonBody.append(",\"max_age\":").append(maxAge);
         jsonBody.append("}");
 
         String response = sendRequest(baseUrl + "/v2/scrape?async=true", "POST", jsonBody.toString());

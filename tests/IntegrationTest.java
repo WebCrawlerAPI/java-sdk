@@ -10,6 +10,7 @@
  *   API_KEY=test-key API_BASE_URL=http://localhost:8080 java IntegrationTest
  */
 public class IntegrationTest {
+    private static final int TEST_MAX_AGE = 0;
 
     public static void main(String[] args) {
         SimpleTestFramework.suite("WebCrawlerAPI Integration Tests");
@@ -51,7 +52,7 @@ public class IntegrationTest {
             String scrapeType = "markdown";
 
             System.out.println("  Scraping: " + url + " (" + scrapeType + ")");
-            WebCrawlerAPI.ScrapeResult result = client.scrape(url, scrapeType);
+            WebCrawlerAPI.ScrapeResult result = client.scrape(url, scrapeType, 100, TEST_MAX_AGE);
 
             SimpleTestFramework.assertNotNull("Scrape result is not null", result);
             SimpleTestFramework.assertNotNull("Scrape result has status", result.status);
@@ -77,7 +78,7 @@ public class IntegrationTest {
             String scrapeType = "html";
 
             System.out.println("  Scraping: " + url + " (" + scrapeType + ")");
-            WebCrawlerAPI.ScrapeResult result = client.scrape(url, scrapeType);
+            WebCrawlerAPI.ScrapeResult result = client.scrape(url, scrapeType, 100, TEST_MAX_AGE);
 
             SimpleTestFramework.assertNotNull("HTML scrape result is not null", result);
             SimpleTestFramework.assertEquals("HTML scrape status is done", "done", result.status);
@@ -104,7 +105,7 @@ public class IntegrationTest {
             String scrapeType = "cleaned";
 
             System.out.println("  Starting async scrape: " + url + " (" + scrapeType + ")");
-            String scrapeId = client.scrapeAsync(url, scrapeType);
+            String scrapeId = client.scrapeAsync(url, scrapeType, TEST_MAX_AGE);
 
             SimpleTestFramework.assertNotNull("Scrape ID is not null", scrapeId);
             SimpleTestFramework.assertTrue("Scrape ID is not empty", scrapeId.length() > 0);
@@ -156,7 +157,7 @@ public class IntegrationTest {
             int itemsLimit = 2;
 
             System.out.println("  Crawling: " + url + " (limit: " + itemsLimit + ", type: " + scrapeType + ")");
-            WebCrawlerAPI.CrawlResult result = client.crawl(url, scrapeType, itemsLimit);
+            WebCrawlerAPI.CrawlResult result = client.crawl(url, scrapeType, itemsLimit, 100, TEST_MAX_AGE);
 
             SimpleTestFramework.assertNotNull("Crawl result is not null", result);
             SimpleTestFramework.assertNotNull("Crawl result has ID", result.id);
@@ -201,7 +202,7 @@ public class IntegrationTest {
             int itemsLimit = 1;
 
             System.out.println("  Crawling with null scrape type: " + url + " (limit: " + itemsLimit + ")");
-            WebCrawlerAPI.CrawlResult result = client.crawl(url, null, itemsLimit);
+            WebCrawlerAPI.CrawlResult result = client.crawl(url, null, itemsLimit, 100, TEST_MAX_AGE);
 
             SimpleTestFramework.assertNotNull("Crawl with null type result is not null", result);
             SimpleTestFramework.assertNotNull("Crawl with null type has status", result.status);
