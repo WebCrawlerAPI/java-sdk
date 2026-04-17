@@ -70,12 +70,15 @@ public class WebCrawlerAPITest {
         crawlResult.id = "test-id-123";
         crawlResult.status = "done";
         crawlResult.url = "https://example.com";
+        crawlResult.outputFormats = new String[]{"markdown", "html"};
         crawlResult.scrapeType = "markdown";
         crawlResult.recommendedPullDelayMs = 5000;
 
         SimpleTestFramework.assertEquals("CrawlResult.id", "test-id-123", crawlResult.id);
         SimpleTestFramework.assertEquals("CrawlResult.status", "done", crawlResult.status);
         SimpleTestFramework.assertEquals("CrawlResult.url", "https://example.com", crawlResult.url);
+        SimpleTestFramework.assertEquals("CrawlResult.outputFormats length", 2, crawlResult.outputFormats.length);
+        SimpleTestFramework.assertEquals("CrawlResult.outputFormats[0]", "markdown", crawlResult.outputFormats[0]);
         SimpleTestFramework.assertEquals("CrawlResult.scrapeType", "markdown", crawlResult.scrapeType);
         SimpleTestFramework.assertEquals("CrawlResult.recommendedPullDelayMs", 5000, crawlResult.recommendedPullDelayMs);
         SimpleTestFramework.assertNotNull("CrawlResult.items is initialized", crawlResult.items);
@@ -95,6 +98,12 @@ public class WebCrawlerAPITest {
         SimpleTestFramework.assertEquals("CrawlItem.getContentUrl(html)", "http://storage.com/raw", crawlItem.getContentUrl("html"));
         SimpleTestFramework.assertEquals("CrawlItem.getContentUrl(cleaned)", "http://storage.com/cleaned", crawlItem.getContentUrl("cleaned"));
         SimpleTestFramework.assertEquals("CrawlItem.getContentUrl(markdown)", "http://storage.com/markdown", crawlItem.getContentUrl("markdown"));
+        SimpleTestFramework.assertEquals("CrawlItem.getContentUrl(outputFormats prefers markdown)",
+            "http://storage.com/markdown",
+            crawlItem.getContentUrl(new String[]{"markdown", "html"}));
+        SimpleTestFramework.assertEquals("CrawlItem.getContentUrl(outputFormats falls back to html)",
+            "http://storage.com/raw",
+            crawlItem.getContentUrl(new String[]{"links", "html"}));
         SimpleTestFramework.assertNull("CrawlItem.getContentUrl(invalid)", crawlItem.getContentUrl("invalid"));
         SimpleTestFramework.assertContains("CrawlItem.toString contains url", crawlItem.toString(), "example.com/page1");
 
@@ -107,6 +116,8 @@ public class WebCrawlerAPITest {
         scrapeResult.cleaned = "Test";
         scrapeResult.url = "https://example.com";
         scrapeResult.pageStatusCode = 200;
+        scrapeResult.pageTitle = "Example Domain";
+        scrapeResult.links = new String[]{"https://example.com/a", "https://example.com/b"};
 
         SimpleTestFramework.assertEquals("ScrapeResult.status", "done", scrapeResult.status);
         SimpleTestFramework.assertEquals("ScrapeResult.content", "Test content", scrapeResult.content);
@@ -115,6 +126,8 @@ public class WebCrawlerAPITest {
         SimpleTestFramework.assertEquals("ScrapeResult.cleaned", "Test", scrapeResult.cleaned);
         SimpleTestFramework.assertEquals("ScrapeResult.url", "https://example.com", scrapeResult.url);
         SimpleTestFramework.assertEquals("ScrapeResult.pageStatusCode", 200, scrapeResult.pageStatusCode);
+        SimpleTestFramework.assertEquals("ScrapeResult.pageTitle", "Example Domain", scrapeResult.pageTitle);
+        SimpleTestFramework.assertEquals("ScrapeResult.links length", 2, scrapeResult.links.length);
         SimpleTestFramework.assertContains("ScrapeResult.toString contains status", scrapeResult.toString(), "done");
 
         // Test WebCrawlerAPIException
@@ -165,8 +178,10 @@ public class WebCrawlerAPITest {
         item.cleanedContentUrl = "http://example.com/cleaned";
         item.markdownContentUrl = "http://example.com/markdown";
 
-        SimpleTestFramework.assertNull("getContentUrl with null returns null", item.getContentUrl(null));
+        SimpleTestFramework.assertNull("getContentUrl with null returns null", item.getContentUrl((String) null));
         SimpleTestFramework.assertNull("getContentUrl with unknown type returns null", item.getContentUrl("unknown"));
+        SimpleTestFramework.assertNull("getContentUrl with null outputFormats returns null", item.getContentUrl((String[]) null));
+        SimpleTestFramework.assertNull("getContentUrl with empty outputFormats returns null", item.getContentUrl(new String[0]));
 
         // Test with null URLs
         WebCrawlerAPI.CrawlItem emptyItem = new WebCrawlerAPI.CrawlItem();

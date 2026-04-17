@@ -25,11 +25,11 @@ import java.util.Map;
  * WebCrawlerAPI client = new WebCrawlerAPI("your-api-key");
  *
  * // Crawl a website
- * CrawlResult result = client.crawl("https://example.com", "markdown", 10);
+ * CrawlResult result = client.crawl("https://example.com", new String[]{"markdown"}, 10);
  * System.out.println("Found " + result.items.size() + " items");
  *
  * // Scrape a single page
- * ScrapeResult scrape = client.scrape("https://example.com", "markdown");
+ * ScrapeResult scrape = client.scrape("https://example.com", new String[]{"markdown"});
  * System.out.println("Content: " + scrape.content);
  * </pre>
  */
@@ -38,6 +38,7 @@ public class WebCrawlerAPI {
     private static final String DEFAULT_BASE_URL = "https://api.webcrawlerapi.com";
     private static final int DEFAULT_POLL_DELAY_MS = 5000;
     private static final int DEFAULT_MAX_POLLS = 100;
+    private static final int DEFAULT_MAX_AGE = 0;
     private static final String SDK_VERSION = "1.0.0-standalone";
 
     private final String apiKey;
@@ -74,7 +75,20 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public CrawlResult crawl(String url, String scrapeType, int itemsLimit) throws WebCrawlerAPIException {
-        return crawl(url, scrapeType, itemsLimit, DEFAULT_MAX_POLLS);
+        return crawl(url, toOutputFormats(scrapeType), itemsLimit, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Crawl a website and return all discovered pages
+     *
+     * @param url The URL to crawl
+     * @param outputFormats Content formats to extract
+     * @param itemsLimit Maximum number of pages to crawl
+     * @return CrawlResult containing job details and crawled items
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public CrawlResult crawl(String url, String[] outputFormats, int itemsLimit) throws WebCrawlerAPIException {
+        return crawl(url, outputFormats, itemsLimit, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
@@ -88,14 +102,59 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public CrawlResult crawl(String url, String scrapeType, int itemsLimit, int maxPolls) throws WebCrawlerAPIException {
+        return crawl(url, toOutputFormats(scrapeType), itemsLimit, maxPolls, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Crawl a website with custom max polls
+     *
+     * @param url The URL to crawl
+     * @param outputFormats Content formats to extract
+     * @param itemsLimit Maximum number of pages to crawl
+     * @param maxPolls Maximum number of polling attempts
+     * @return CrawlResult containing job details and crawled items
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public CrawlResult crawl(String url, String[] outputFormats, int itemsLimit, int maxPolls) throws WebCrawlerAPIException {
+        return crawl(url, outputFormats, itemsLimit, maxPolls, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Crawl a website with custom max polls and max_age cache control
+     *
+     * @param url The URL to crawl
+     * @param scrapeType Type of content to extract
+     * @param itemsLimit Maximum number of pages to crawl
+     * @param maxPolls Maximum number of polling attempts
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return CrawlResult containing job details and crawled items
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public CrawlResult crawl(String url, String scrapeType, int itemsLimit, int maxPolls, int maxAge) throws WebCrawlerAPIException {
+        return crawl(url, toOutputFormats(scrapeType), itemsLimit, maxPolls, maxAge);
+    }
+
+    /**
+     * Crawl a website with custom max polls and max_age cache control
+     *
+     * @param url The URL to crawl
+     * @param outputFormats Content formats to extract
+     * @param itemsLimit Maximum number of pages to crawl
+     * @param maxPolls Maximum number of polling attempts
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return CrawlResult containing job details and crawled items
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public CrawlResult crawl(String url, String[] outputFormats, int itemsLimit, int maxPolls, int maxAge) throws WebCrawlerAPIException {
         // Build request body
         StringBuilder jsonBody = new StringBuilder();
         jsonBody.append("{");
         jsonBody.append("\"url\":\"").append(escapeJson(url)).append("\"");
-        if (scrapeType != null) {
-            jsonBody.append(",\"scrape_type\":\"").append(escapeJson(scrapeType)).append("\"");
+        if (outputFormats != null && outputFormats.length > 0) {
+            jsonBody.append(",\"output_formats\":").append(buildJsonStringArray(outputFormats));
         }
         jsonBody.append(",\"items_limit\":").append(itemsLimit);
+        jsonBody.append(",\"max_age\":").append(maxAge);
         jsonBody.append("}");
 
         // Start crawl job
@@ -141,7 +200,19 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public ScrapeResult scrape(String url, String scrapeType) throws WebCrawlerAPIException {
-        return scrape(url, scrapeType, DEFAULT_MAX_POLLS);
+        return scrape(url, toOutputFormats(scrapeType), DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Scrape a single page synchronously.
+     *
+     * @param url The URL to scrape
+     * @param outputFormats Content formats to extract
+     * @return ScrapeResult containing the scraped content
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public ScrapeResult scrape(String url, String[] outputFormats) throws WebCrawlerAPIException {
+        return scrape(url, outputFormats, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
@@ -154,27 +225,58 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public ScrapeResult scrape(String url, String scrapeType, int maxPolls) throws WebCrawlerAPIException {
-        String scrapeId = scrapeAsync(url, scrapeType);
+        return scrape(url, toOutputFormats(scrapeType), maxPolls, DEFAULT_MAX_AGE);
+    }
 
-        // Poll for completion
-        ScrapeResult result = null;
-        for (int i = 0; i < maxPolls; i++) {
-            String scrapeResponse = sendRequest(baseUrl + "/v2/scrape/" + scrapeId, "GET", null);
-            result = parseScrapeResult(scrapeResponse);
+    /**
+     * Scrape a single page with custom max polls.
+     *
+     * @param url The URL to scrape
+     * @param outputFormats Content formats to extract
+     * @param maxPolls Deprecated for the sync endpoint. Kept for backward compatibility.
+     * @return ScrapeResult containing the scraped content
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public ScrapeResult scrape(String url, String[] outputFormats, int maxPolls) throws WebCrawlerAPIException {
+        return scrape(url, outputFormats, maxPolls, DEFAULT_MAX_AGE);
+    }
 
-            if ("done".equals(result.status) || "error".equals(result.status)) {
-                return result;
-            }
+    /**
+     * Scrape a single page with custom max polls and max_age cache control
+     *
+     * @param url The URL to scrape
+     * @param scrapeType Type of content to extract
+     * @param maxPolls Maximum number of polling attempts
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return ScrapeResult containing the scraped content
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public ScrapeResult scrape(String url, String scrapeType, int maxPolls, int maxAge) throws WebCrawlerAPIException {
+        return scrape(url, toOutputFormats(scrapeType), maxPolls, maxAge);
+    }
 
-            try {
-                Thread.sleep(DEFAULT_POLL_DELAY_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new WebCrawlerAPIException("interrupted", "Polling was interrupted");
-            }
+    /**
+     * Scrape a single page with custom max_age cache control.
+     *
+     * @param url The URL to scrape
+     * @param outputFormats Content formats to extract
+     * @param maxPolls Deprecated for the sync endpoint. Kept for backward compatibility.
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return ScrapeResult containing the scraped content
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public ScrapeResult scrape(String url, String[] outputFormats, int maxPolls, int maxAge) throws WebCrawlerAPIException {
+        StringBuilder jsonBody = new StringBuilder();
+        jsonBody.append("{");
+        jsonBody.append("\"url\":\"").append(escapeJson(url)).append("\"");
+        if (outputFormats != null && outputFormats.length > 0) {
+            jsonBody.append(",\"output_formats\":").append(buildJsonStringArray(outputFormats));
         }
+        jsonBody.append(",\"max_age\":").append(maxAge);
+        jsonBody.append("}");
 
-        return result;
+        String response = sendRequest(baseUrl + "/v2/scrape", "POST", jsonBody.toString());
+        return parseScrapeResult(response);
     }
 
     /**
@@ -186,13 +288,52 @@ public class WebCrawlerAPI {
      * @throws WebCrawlerAPIException if the request fails
      */
     public String scrapeAsync(String url, String scrapeType) throws WebCrawlerAPIException {
+        return scrapeAsync(url, toOutputFormats(scrapeType), DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Start a scrape job asynchronously (returns immediately with scrape ID)
+     *
+     * @param url The URL to scrape
+     * @param outputFormats Content formats to extract
+     * @return Scrape ID that can be used to check status later
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public String scrapeAsync(String url, String[] outputFormats) throws WebCrawlerAPIException {
+        return scrapeAsync(url, outputFormats, DEFAULT_MAX_AGE);
+    }
+
+    /**
+     * Start a scrape job asynchronously with max_age cache control
+     *
+     * @param url The URL to scrape
+     * @param scrapeType Type of content to extract
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return Scrape ID that can be used to check status later
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public String scrapeAsync(String url, String scrapeType, int maxAge) throws WebCrawlerAPIException {
+        return scrapeAsync(url, toOutputFormats(scrapeType), maxAge);
+    }
+
+    /**
+     * Start a scrape job asynchronously with max_age cache control
+     *
+     * @param url The URL to scrape
+     * @param outputFormats Content formats to extract
+     * @param maxAge Cache age in seconds (0 to bypass cache)
+     * @return Scrape ID that can be used to check status later
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public String scrapeAsync(String url, String[] outputFormats, int maxAge) throws WebCrawlerAPIException {
         // Build request body
         StringBuilder jsonBody = new StringBuilder();
         jsonBody.append("{");
         jsonBody.append("\"url\":\"").append(escapeJson(url)).append("\"");
-        if (scrapeType != null) {
-            jsonBody.append(",\"scrape_type\":\"").append(escapeJson(scrapeType)).append("\"");
+        if (outputFormats != null && outputFormats.length > 0) {
+            jsonBody.append(",\"output_formats\":").append(buildJsonStringArray(outputFormats));
         }
+        jsonBody.append(",\"max_age\":").append(maxAge);
         jsonBody.append("}");
 
         String response = sendRequest(baseUrl + "/v2/scrape?async=true", "POST", jsonBody.toString());
@@ -292,6 +433,7 @@ public class WebCrawlerAPI {
         result.status = extractJsonValue(json, "status");
         result.url = extractJsonValue(json, "url");
         result.scrapeType = extractJsonValue(json, "scrape_type");
+        result.outputFormats = extractJsonStringArray(json, "output_formats");
         result.recommendedPullDelayMs = extractJsonInt(json, "recommended_pull_delay_ms");
         result.items = extractJobItems(json);
         return result;
@@ -300,12 +442,28 @@ public class WebCrawlerAPI {
     private ScrapeResult parseScrapeResult(String json) {
         ScrapeResult result = new ScrapeResult();
         result.status = extractJsonValue(json, "status");
-        result.content = extractJsonValue(json, "content");
-        result.html = extractJsonValue(json, "html");
+        result.html = extractJsonValue(json, "raw_content");
         result.markdown = extractJsonValue(json, "markdown");
-        result.cleaned = extractJsonValue(json, "cleaned");
+        result.cleaned = extractJsonValue(json, "cleaned_content");
         result.url = extractJsonValue(json, "url");
         result.pageStatusCode = extractJsonInt(json, "page_status_code");
+        result.pageTitle = extractJsonValue(json, "page_title");
+        result.links = extractJsonStringArray(json, "links");
+
+        // Map content field based on available data
+        // V2 API returns specific fields (markdown, raw_content, cleaned_content) instead of generic "content"
+        if (result.markdown != null) {
+            result.content = result.markdown;
+        } else if (result.html != null) {
+            result.content = result.html;
+        } else if (result.cleaned != null) {
+            result.content = result.cleaned;
+        }
+
+        if (result.status == null && (result.content != null || result.pageStatusCode > 0)) {
+            result.status = "done";
+        }
+
         return result;
     }
 
@@ -355,7 +513,7 @@ public class WebCrawlerAPI {
                 if (depth == 0 && objStart != -1) {
                     String itemJson = itemsJson.substring(objStart, i + 1);
                     CrawlItem item = new CrawlItem();
-                    item.url = extractJsonValue(itemJson, "url");
+                    item.url = extractJsonValue(itemJson, "original_url");
                     item.status = extractJsonValue(itemJson, "status");
                     item.rawContentUrl = extractJsonValue(itemJson, "raw_content_url");
                     item.cleanedContentUrl = extractJsonValue(itemJson, "cleaned_content_url");
@@ -437,6 +595,92 @@ public class WebCrawlerAPI {
         }
     }
 
+    private String[] extractJsonStringArray(String json, String key) {
+        String searchKey = "\"" + key + "\":";
+        int keyIndex = json.indexOf(searchKey);
+        if (keyIndex == -1) {
+            return new String[0];
+        }
+
+        int arrayStart = json.indexOf("[", keyIndex);
+        if (arrayStart == -1) {
+            return new String[0];
+        }
+
+        int depth = 0;
+        int arrayEnd = -1;
+        for (int i = arrayStart; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == '[') depth++;
+            else if (c == ']') {
+                depth--;
+                if (depth == 0) {
+                    arrayEnd = i;
+                    break;
+                }
+            }
+        }
+
+        if (arrayEnd == -1) {
+            return new String[0];
+        }
+
+        String arrayJson = json.substring(arrayStart + 1, arrayEnd);
+        List<String> values = new ArrayList<>();
+        int index = 0;
+
+        while (index < arrayJson.length()) {
+            while (index < arrayJson.length() && (Character.isWhitespace(arrayJson.charAt(index)) || arrayJson.charAt(index) == ',')) {
+                index++;
+            }
+
+            if (index >= arrayJson.length() || arrayJson.charAt(index) != '"') {
+                break;
+            }
+
+            int valueEnd = index + 1;
+            boolean escaped = false;
+            while (valueEnd < arrayJson.length()) {
+                char c = arrayJson.charAt(valueEnd);
+                if (c == '\\' && !escaped) {
+                    escaped = true;
+                } else if (c == '"' && !escaped) {
+                    values.add(unescapeJson(arrayJson.substring(index + 1, valueEnd)));
+                    index = valueEnd + 1;
+                    break;
+                } else {
+                    escaped = false;
+                }
+                valueEnd++;
+            }
+
+            if (valueEnd >= arrayJson.length()) {
+                break;
+            }
+        }
+
+        return values.toArray(new String[0]);
+    }
+
+    private String[] toOutputFormats(String scrapeType) {
+        if (scrapeType == null || scrapeType.trim().isEmpty()) {
+            return null;
+        }
+        return new String[]{scrapeType};
+    }
+
+    private String buildJsonStringArray(String[] values) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("\"").append(escapeJson(values[i])).append("\"");
+        }
+        json.append("]");
+        return json.toString();
+    }
+
     private boolean isTerminalStatus(String status) {
         return "done".equals(status) || "error".equals(status) || "cancelled".equals(status);
     }
@@ -468,6 +712,7 @@ public class WebCrawlerAPI {
         public String id;
         public String status;
         public String url;
+        public String[] outputFormats = new String[0];
         public String scrapeType;
         public int recommendedPullDelayMs;
         public List<CrawlItem> items = new ArrayList<>();
@@ -487,6 +732,22 @@ public class WebCrawlerAPI {
         public String rawContentUrl;
         public String cleanedContentUrl;
         public String markdownContentUrl;
+
+        /**
+         * Get the content URL based on output format priority
+         */
+        public String getContentUrl(String[] outputFormats) {
+            if (outputFormats == null || outputFormats.length == 0) {
+                return null;
+            }
+
+            for (String outputFormat : outputFormats) {
+                if ("markdown".equals(outputFormat) && markdownContentUrl != null) return markdownContentUrl;
+                if ("cleaned".equals(outputFormat) && cleanedContentUrl != null) return cleanedContentUrl;
+                if ("html".equals(outputFormat) && rawContentUrl != null) return rawContentUrl;
+            }
+            return null;
+        }
 
         /**
          * Get the content URL based on the scrape type
@@ -515,6 +776,8 @@ public class WebCrawlerAPI {
         public String cleaned;
         public String url;
         public int pageStatusCode;
+        public String pageTitle;
+        public String[] links = new String[0];
 
         @Override
         public String toString() {
