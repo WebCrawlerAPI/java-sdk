@@ -11,6 +11,18 @@ public class WebCrawlerAPITest {
         testDataClasses();
         testJsonParsing();
         testValidation();
+        testConstants();
+        testExceptionStatusCode();
+        testCrawlOptionsBuilder();
+        testScrapeOptionsBuilder();
+        testUploadS3Action();
+        testAgentRunRequestBuilder();
+        testAgentRunDataClass();
+        testNewCrawlResultFields();
+        testNewCrawlItemFields();
+        testNewScrapeResultFields();
+        testJobMarkdownResponse();
+        testMarkdownResponse();
 
         int exitCode = SimpleTestFramework.printSummary();
         System.exit(exitCode);
@@ -201,5 +213,231 @@ public class WebCrawlerAPITest {
         SimpleTestFramework.assertNull("CrawlResult.status defaults to null", crawlResult.status);
         SimpleTestFramework.assertEquals("CrawlResult.recommendedPullDelayMs defaults to 0", 0, crawlResult.recommendedPullDelayMs);
         SimpleTestFramework.assertNotNull("CrawlResult.items is not null", crawlResult.items);
+    }
+
+    private static void testConstants() {
+        SimpleTestFramework.section("Constants Tests (JS SDK parity)");
+
+        SimpleTestFramework.assertEquals("JobStatus.IN_PROGRESS", "in_progress", WebCrawlerAPI.JobStatus.IN_PROGRESS);
+        SimpleTestFramework.assertEquals("JobStatus.NEW", "new", WebCrawlerAPI.JobStatus.NEW);
+        SimpleTestFramework.assertEquals("JobStatus.DONE", "done", WebCrawlerAPI.JobStatus.DONE);
+        SimpleTestFramework.assertEquals("ErrorCode.BLOCKED_BY_ROBOTS_TXT", "blocked_by_robots_txt", WebCrawlerAPI.ErrorCode.BLOCKED_BY_ROBOTS_TXT);
+    }
+
+    private static void testExceptionStatusCode() {
+        SimpleTestFramework.section("Exception Status Code Tests");
+
+        WebCrawlerAPI.WebCrawlerAPIException withStatus =
+            new WebCrawlerAPI.WebCrawlerAPIException("not_found", "Not found", 404);
+        SimpleTestFramework.assertEquals("Exception.getStatusCode returns given status", 404, withStatus.getStatusCode());
+        SimpleTestFramework.assertContains("Exception.toString contains statusCode", withStatus.toString(), "404");
+
+        WebCrawlerAPI.WebCrawlerAPIException withoutStatus =
+            new WebCrawlerAPI.WebCrawlerAPIException("network_error", "Network error");
+        SimpleTestFramework.assertEquals("Exception.getStatusCode defaults to 0", 0, withoutStatus.getStatusCode());
+    }
+
+    private static void testCrawlOptionsBuilder() {
+        SimpleTestFramework.section("CrawlOptions Builder Tests");
+
+        WebCrawlerAPI.CrawlOptions options = new WebCrawlerAPI.CrawlOptions("https://example.com")
+            .outputFormats("markdown", "html")
+            .itemsLimit(5)
+            .whitelistRegexp(".*allowed.*")
+            .blacklistRegexp(".*blocked.*")
+            .webhookUrl("https://example.com/webhook")
+            .respectRobotsTxt(true)
+            .mainContentOnly(true)
+            .maxDepth(2)
+            .maxAge(60)
+            .keepQueryParams(true);
+
+        SimpleTestFramework.assertEquals("CrawlOptions.url", "https://example.com", options.url);
+        SimpleTestFramework.assertEquals("CrawlOptions.outputFormats length", 2, options.outputFormats.length);
+        SimpleTestFramework.assertEquals("CrawlOptions.itemsLimit", Integer.valueOf(5), options.itemsLimit);
+        SimpleTestFramework.assertEquals("CrawlOptions.whitelistRegexp", ".*allowed.*", options.whitelistRegexp);
+        SimpleTestFramework.assertEquals("CrawlOptions.blacklistRegexp", ".*blocked.*", options.blacklistRegexp);
+        SimpleTestFramework.assertEquals("CrawlOptions.webhookUrl", "https://example.com/webhook", options.webhookUrl);
+        SimpleTestFramework.assertEquals("CrawlOptions.respectRobotsTxt", Boolean.TRUE, options.respectRobotsTxt);
+        SimpleTestFramework.assertEquals("CrawlOptions.mainContentOnly", Boolean.TRUE, options.mainContentOnly);
+        SimpleTestFramework.assertEquals("CrawlOptions.maxDepth", Integer.valueOf(2), options.maxDepth);
+        SimpleTestFramework.assertEquals("CrawlOptions.maxAge", 60, options.maxAge);
+        SimpleTestFramework.assertEquals("CrawlOptions.keepQueryParams", Boolean.TRUE, options.keepQueryParams);
+
+        WebCrawlerAPI.CrawlOptions defaults = new WebCrawlerAPI.CrawlOptions("https://example.com");
+        SimpleTestFramework.assertNull("CrawlOptions.itemsLimit defaults to null", defaults.itemsLimit);
+        SimpleTestFramework.assertNull("CrawlOptions.maxDepth defaults to null", defaults.maxDepth);
+        SimpleTestFramework.assertEquals("CrawlOptions.maxAge defaults to 0", 0, defaults.maxAge);
+    }
+
+    private static void testScrapeOptionsBuilder() {
+        SimpleTestFramework.section("ScrapeOptions Builder Tests");
+
+        java.util.List<WebCrawlerAPI.Action> actions = new java.util.ArrayList<>();
+        actions.add(new WebCrawlerAPI.UploadS3Action("path/to/file", "key-id", "secret", "my-bucket"));
+
+        WebCrawlerAPI.ScrapeOptions options = new WebCrawlerAPI.ScrapeOptions("https://example.com")
+            .outputFormats("markdown")
+            .webhookUrl("https://example.com/webhook")
+            .cleanSelectors(".ads, .nav")
+            .actions(actions)
+            .prompt("Extract the title")
+            .responseSchemaJson("{\"type\":\"object\"}")
+            .mainContentOnly(true)
+            .maxAge(30);
+
+        SimpleTestFramework.assertEquals("ScrapeOptions.url", "https://example.com", options.url);
+        SimpleTestFramework.assertEquals("ScrapeOptions.outputFormats[0]", "markdown", options.outputFormats[0]);
+        SimpleTestFramework.assertEquals("ScrapeOptions.webhookUrl", "https://example.com/webhook", options.webhookUrl);
+        SimpleTestFramework.assertEquals("ScrapeOptions.cleanSelectors", ".ads, .nav", options.cleanSelectors);
+        SimpleTestFramework.assertEquals("ScrapeOptions.actions size", 1, options.actions.size());
+        SimpleTestFramework.assertEquals("ScrapeOptions.prompt", "Extract the title", options.prompt);
+        SimpleTestFramework.assertEquals("ScrapeOptions.responseSchemaJson", "{\"type\":\"object\"}", options.responseSchemaJson);
+        SimpleTestFramework.assertEquals("ScrapeOptions.mainContentOnly", Boolean.TRUE, options.mainContentOnly);
+        SimpleTestFramework.assertEquals("ScrapeOptions.maxAge", 30, options.maxAge);
+    }
+
+    private static void testUploadS3Action() {
+        SimpleTestFramework.section("UploadS3Action Tests");
+
+        WebCrawlerAPI.UploadS3Action action =
+            new WebCrawlerAPI.UploadS3Action("path/to/file", "key-id", "secret", "my-bucket")
+                .endpoint("https://s3.custom.example.com");
+
+        SimpleTestFramework.assertEquals("UploadS3Action.type", "upload_s3", action.type);
+        SimpleTestFramework.assertEquals("UploadS3Action.path", "path/to/file", action.path);
+        SimpleTestFramework.assertEquals("UploadS3Action.accessKeyId", "key-id", action.accessKeyId);
+        SimpleTestFramework.assertEquals("UploadS3Action.secretAccessKey", "secret", action.secretAccessKey);
+        SimpleTestFramework.assertEquals("UploadS3Action.bucket", "my-bucket", action.bucket);
+        SimpleTestFramework.assertEquals("UploadS3Action.endpoint", "https://s3.custom.example.com", action.endpoint);
+    }
+
+    private static void testAgentRunRequestBuilder() {
+        SimpleTestFramework.section("AgentRunRequest Builder Tests");
+
+        WebCrawlerAPI.AgentRunRequest request = new WebCrawlerAPI.AgentRunRequest("Find pricing info", 1.5)
+            .urls("https://example.com/pricing")
+            .seedUrlsOnly(true)
+            .outputSchemaJson("{\"type\":\"object\"}")
+            .model("claude-sonnet-5");
+
+        SimpleTestFramework.assertEquals("AgentRunRequest.prompt", "Find pricing info", request.prompt);
+        SimpleTestFramework.assertEquals("AgentRunRequest.maxSpendUsd", 1.5, request.maxSpendUsd);
+        SimpleTestFramework.assertEquals("AgentRunRequest.urls[0]", "https://example.com/pricing", request.urls[0]);
+        SimpleTestFramework.assertEquals("AgentRunRequest.seedUrlsOnly", Boolean.TRUE, request.seedUrlsOnly);
+        SimpleTestFramework.assertEquals("AgentRunRequest.outputSchemaJson", "{\"type\":\"object\"}", request.outputSchemaJson);
+        SimpleTestFramework.assertEquals("AgentRunRequest.model", "claude-sonnet-5", request.model);
+    }
+
+    private static void testAgentRunDataClass() {
+        SimpleTestFramework.section("AgentRun Data Class Tests");
+
+        WebCrawlerAPI.AgentRun run = new WebCrawlerAPI.AgentRun();
+        run.id = "run-123";
+        run.status = "done";
+        run.prompt = "Find pricing info";
+        run.model = "claude-sonnet-5";
+        run.dataJson = "{\"price\":10}";
+        run.balanceUsedUsd = 0.5;
+        run.maxSpendUsd = 1.5;
+        run.urls = new String[]{"https://example.com"};
+        run.success = true;
+
+        SimpleTestFramework.assertEquals("AgentRun.id", "run-123", run.id);
+        SimpleTestFramework.assertEquals("AgentRun.status", "done", run.status);
+        SimpleTestFramework.assertEquals("AgentRun.dataJson", "{\"price\":10}", run.dataJson);
+        SimpleTestFramework.assertEquals("AgentRun.balanceUsedUsd", 0.5, run.balanceUsedUsd);
+        SimpleTestFramework.assertEquals("AgentRun.maxSpendUsd", Double.valueOf(1.5), run.maxSpendUsd);
+        SimpleTestFramework.assertEquals("AgentRun.urls length", 1, run.urls.length);
+        SimpleTestFramework.assertTrue("AgentRun.success", run.success);
+        SimpleTestFramework.assertContains("AgentRun.toString contains id", run.toString(), "run-123");
+    }
+
+    private static void testNewCrawlResultFields() {
+        SimpleTestFramework.section("CrawlResult New Fields Tests");
+
+        WebCrawlerAPI.CrawlResult result = new WebCrawlerAPI.CrawlResult();
+        result.orgId = "org-1";
+        result.whitelistRegexp = ".*allowed.*";
+        result.blacklistRegexp = ".*blocked.*";
+        result.itemsLimit = 10;
+        result.maxDepth = 3;
+        result.createdAt = "2026-01-01T00:00:00Z";
+        result.finishedAt = "2026-01-01T00:05:00Z";
+        result.updatedAt = "2026-01-01T00:05:00Z";
+        result.webhookUrl = "https://example.com/webhook";
+
+        SimpleTestFramework.assertEquals("CrawlResult.orgId", "org-1", result.orgId);
+        SimpleTestFramework.assertEquals("CrawlResult.whitelistRegexp", ".*allowed.*", result.whitelistRegexp);
+        SimpleTestFramework.assertEquals("CrawlResult.blacklistRegexp", ".*blocked.*", result.blacklistRegexp);
+        SimpleTestFramework.assertEquals("CrawlResult.itemsLimit", 10, result.itemsLimit);
+        SimpleTestFramework.assertEquals("CrawlResult.maxDepth", Integer.valueOf(3), result.maxDepth);
+        SimpleTestFramework.assertEquals("CrawlResult.createdAt", "2026-01-01T00:00:00Z", result.createdAt);
+        SimpleTestFramework.assertEquals("CrawlResult.finishedAt", "2026-01-01T00:05:00Z", result.finishedAt);
+        SimpleTestFramework.assertEquals("CrawlResult.updatedAt", "2026-01-01T00:05:00Z", result.updatedAt);
+        SimpleTestFramework.assertEquals("CrawlResult.webhookUrl", "https://example.com/webhook", result.webhookUrl);
+    }
+
+    private static void testNewCrawlItemFields() {
+        SimpleTestFramework.section("CrawlItem New Fields Tests");
+
+        WebCrawlerAPI.CrawlItem item = new WebCrawlerAPI.CrawlItem();
+        item.id = "item-1";
+        item.jobId = "job-1";
+        item.pageStatusCode = 200;
+        item.title = "Example Page";
+        item.lastError = null;
+        item.createdAt = "2026-01-01T00:00:00Z";
+        item.updatedAt = "2026-01-01T00:01:00Z";
+        item.cost = 0.01;
+        item.referredUrl = "https://example.com";
+        item.links = "https://example.com/a,https://example.com/b";
+        item.depth = 1;
+        item.errorCode = null;
+
+        SimpleTestFramework.assertEquals("CrawlItem.id", "item-1", item.id);
+        SimpleTestFramework.assertEquals("CrawlItem.jobId", "job-1", item.jobId);
+        SimpleTestFramework.assertEquals("CrawlItem.pageStatusCode", 200, item.pageStatusCode);
+        SimpleTestFramework.assertEquals("CrawlItem.title", "Example Page", item.title);
+        SimpleTestFramework.assertEquals("CrawlItem.cost", 0.01, item.cost);
+        SimpleTestFramework.assertEquals("CrawlItem.referredUrl", "https://example.com", item.referredUrl);
+        SimpleTestFramework.assertEquals("CrawlItem.depth", Integer.valueOf(1), item.depth);
+        SimpleTestFramework.assertNull("CrawlItem.lastError defaults to null", item.lastError);
+        SimpleTestFramework.assertNull("CrawlItem.errorCode defaults to null", item.errorCode);
+    }
+
+    private static void testNewScrapeResultFields() {
+        SimpleTestFramework.section("ScrapeResult New Fields Tests");
+
+        WebCrawlerAPI.ScrapeResult result = new WebCrawlerAPI.ScrapeResult();
+        result.success = true;
+        result.structuredDataJson = "{\"title\":\"Example\"}";
+
+        SimpleTestFramework.assertTrue("ScrapeResult.success", result.success);
+        SimpleTestFramework.assertEquals("ScrapeResult.structuredDataJson", "{\"title\":\"Example\"}", result.structuredDataJson);
+
+        WebCrawlerAPI.ScrapeResult defaults = new WebCrawlerAPI.ScrapeResult();
+        SimpleTestFramework.assertFalse("ScrapeResult.success defaults to false", defaults.success);
+        SimpleTestFramework.assertNull("ScrapeResult.structuredDataJson defaults to null", defaults.structuredDataJson);
+    }
+
+    private static void testJobMarkdownResponse() {
+        SimpleTestFramework.section("JobMarkdownResponse Tests");
+
+        WebCrawlerAPI.JobMarkdownResponse response = new WebCrawlerAPI.JobMarkdownResponse();
+        response.contentUrl = "https://cdn.example.com/job-1.md";
+
+        SimpleTestFramework.assertEquals("JobMarkdownResponse.contentUrl", "https://cdn.example.com/job-1.md", response.contentUrl);
+    }
+
+    private static void testMarkdownResponse() {
+        SimpleTestFramework.section("MarkdownResponse Tests");
+
+        WebCrawlerAPI.MarkdownResponse response = new WebCrawlerAPI.MarkdownResponse();
+        response.success = true;
+        response.markdown = "# Example";
+
+        SimpleTestFramework.assertTrue("MarkdownResponse.success", response.success);
+        SimpleTestFramework.assertEquals("MarkdownResponse.markdown", "# Example", response.markdown);
     }
 }

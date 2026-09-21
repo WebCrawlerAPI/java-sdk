@@ -39,6 +39,10 @@ public class IntegrationTest {
         testScrape(client);
         testScrapeAsync(client);
         testCrawl(client);
+        testScrapeWithOptions(client);
+        testCrawlWithOptionsAndGetJob(client);
+        testJobMarkdown(client);
+        testMarkdownEndpoint(client);
 
         int exitCode = SimpleTestFramework.printSummary();
         System.exit(exitCode);
@@ -218,6 +222,138 @@ public class IntegrationTest {
             SimpleTestFramework.fail("Crawl with null type test", "API error: " + e.getErrorCode() + " - " + e.getMessage());
         } catch (Exception e) {
             SimpleTestFramework.fail("Crawl with null type test", "Unexpected error: " + e.getMessage());
+        }
+    }
+
+    private static void testScrapeWithOptions(WebCrawlerAPI client) {
+        SimpleTestFramework.section("Scrape Tests (ScrapeOptions - new API)");
+
+        try {
+            WebCrawlerAPI.ScrapeOptions options = new WebCrawlerAPI.ScrapeOptions("https://example.com")
+                .outputFormats("markdown")
+                .mainContentOnly(true)
+                .maxAge(TEST_MAX_AGE);
+
+            System.out.println("  Scraping via ScrapeOptions: " + options.url);
+            WebCrawlerAPI.ScrapeResult result = client.scrape(options);
+
+            SimpleTestFramework.assertNotNull("ScrapeOptions result is not null", result);
+            SimpleTestFramework.assertTrue("ScrapeOptions result.success is true", result.success);
+            SimpleTestFramework.assertEquals("ScrapeOptions status is done", "done", result.status);
+            SimpleTestFramework.assertNotNull("ScrapeOptions result has content", result.content);
+            SimpleTestFramework.assertContains("ScrapeOptions content contains 'Example Domain'", result.content, "Example Domain");
+
+            System.out.println("    success: " + result.success + ", content length: " + result.content.length());
+        } catch (WebCrawlerAPI.WebCrawlerAPIException e) {
+            SimpleTestFramework.fail("Scrape with ScrapeOptions", "API error: " + e.getErrorCode() + " (status " + e.getStatusCode() + ") - " + e.getMessage());
+        } catch (Exception e) {
+            SimpleTestFramework.fail("Scrape with ScrapeOptions", "Unexpected error: " + e.getMessage());
+        }
+    }
+
+    private static void testCrawlWithOptionsAndGetJob(WebCrawlerAPI client) {
+        SimpleTestFramework.section("Crawl Tests (CrawlOptions - new API)");
+
+        try {
+            WebCrawlerAPI.CrawlOptions options = new WebCrawlerAPI.CrawlOptions("https://example.com")
+                .outputFormats("markdown")
+                .itemsLimit(1)
+                .maxAge(TEST_MAX_AGE);
+
+            System.out.println("  crawlAsync via CrawlOptions: " + options.url);
+            String jobId = client.crawlAsync(options);
+
+            SimpleTestFramework.assertNotNull("crawlAsync returns a job id", jobId);
+            SimpleTestFramework.assertTrue("crawlAsync job id is not empty", !jobId.isEmpty());
+            System.out.println("    Job ID: " + jobId);
+
+            WebCrawlerAPI.CrawlResult result = null;
+            boolean completed = false;
+            for (int i = 0; i < 30; i++) {
+                result = client.getJob(jobId);
+                System.out.println("    Poll " + (i + 1) + ": status = " + result.status);
+                if (!"new".equals(result.status) && !"in_progress".equals(result.status)) {
+                    completed = true;
+                    break;
+                }
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
+            SimpleTestFramework.assertTrue("getJob polling completed within timeout", completed);
+            SimpleTestFramework.assertNotNull("getJob result is not null", result);
+            SimpleTestFramework.assertEquals("getJob status is done", "done", result.status);
+            SimpleTestFramework.assertNotNull("getJob result has createdAt", result.createdAt);
+            SimpleTestFramework.assertTrue("getJob result has at least one item", result.items.size() >= 1);
+
+            // Also exercise the full crawl(CrawlOptions) polling helper directly.
+            WebCrawlerAPI.CrawlOptions crawlOptions = new WebCrawlerAPI.CrawlOptions("https://example.com")
+                .outputFormats("markdown")
+                .itemsLimit(1)
+                .maxAge(TEST_MAX_AGE);
+            WebCrawlerAPI.CrawlResult crawlResult = client.crawl(crawlOptions, 30);
+
+            SimpleTestFramework.assertNotNull("crawl(CrawlOptions) result is not null", crawlResult);
+            SimpleTestFramework.assertEquals("crawl(CrawlOptions) status is done", "done", crawlResult.status);
+            SimpleTestFramework.assertTrue("crawl(CrawlOptions) has items", crawlResult.items.size() >= 1);
+
+        } catch (WebCrawlerAPI.WebCrawlerAPIException e) {
+            SimpleTestFramework.fail("Crawl with CrawlOptions / getJob", "API error: " + e.getErrorCode() + " (status " + e.getStatusCode() + ") - " + e.getMessage());
+        } catch (Exception e) {
+            SimpleTestFramework.fail("Crawl with CrawlOptions / getJob", "Unexpected error: " + e.getMessage());
+        }
+    }
+
+    private static void testJobMarkdown(WebCrawlerAPI client) {
+        SimpleTestFramework.section("Job Markdown Tests");
+
+        try {
+            WebCrawlerAPI.CrawlOptions options = new WebCrawlerAPI.CrawlOptions("https://example.com")
+                .outputFormats("markdown")
+                .itemsLimit(1)
+                .maxAge(TEST_MAX_AGE);
+
+            WebCrawlerAPI.CrawlResult crawlResult = client.crawl(options, 30);
+            SimpleTestFramework.assertEquals("Crawl for markdown test is done", "done", crawlResult.status);
+
+            WebCrawlerAPI.JobMarkdownResponse markdownResponse = client.getJobMarkdown(crawlResult.id);
+            SimpleTestFramework.assertNotNull("getJobMarkdown returns a response", markdownResponse);
+            SimpleTestFramework.assertNotNull("getJobMarkdown has content_url", markdownResponse.contentUrl);
+            SimpleTestFramework.assertTrue("getJobMarkdown content_url looks like a URL", markdownResponse.contentUrl.startsWith("http"));
+
+            String content = client.getJobMarkdownContent(crawlResult.id);
+            SimpleTestFramework.assertNotNull("getJobMarkdownContent returns content", content);
+            SimpleTestFramework.assertTrue("getJobMarkdownContent content is not empty", content.length() > 0);
+
+            System.out.println("    content_url: " + markdownResponse.contentUrl);
+            System.out.println("    markdown content length: " + content.length());
+        } catch (WebCrawlerAPI.WebCrawlerAPIException e) {
+            SimpleTestFramework.fail("Job markdown test", "API error: " + e.getErrorCode() + " (status " + e.getStatusCode() + ") - " + e.getMessage());
+        } catch (Exception e) {
+            SimpleTestFramework.fail("Job markdown test", "Unexpected error: " + e.getMessage());
+        }
+    }
+
+    private static void testMarkdownEndpoint(WebCrawlerAPI client) {
+        SimpleTestFramework.section("Standalone Markdown Endpoint Tests");
+
+        try {
+            WebCrawlerAPI.MarkdownResponse response = client.markdown("https://example.com");
+
+            SimpleTestFramework.assertNotNull("markdown() returns a response", response);
+            SimpleTestFramework.assertTrue("markdown() success is true", response.success);
+            SimpleTestFramework.assertNotNull("markdown() has markdown content", response.markdown);
+            SimpleTestFramework.assertContains("markdown() content contains 'Example Domain'", response.markdown, "Example Domain");
+
+            System.out.println("    markdown length: " + response.markdown.length());
+        } catch (WebCrawlerAPI.WebCrawlerAPIException e) {
+            SimpleTestFramework.fail("Standalone markdown endpoint test", "API error: " + e.getErrorCode() + " (status " + e.getStatusCode() + ") - " + e.getMessage());
+        } catch (Exception e) {
+            SimpleTestFramework.fail("Standalone markdown endpoint test", "Unexpected error: " + e.getMessage());
         }
     }
 
