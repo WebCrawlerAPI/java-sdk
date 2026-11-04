@@ -39,6 +39,9 @@ public class WebCrawlerAPI {
     private static final String DEFAULT_BASE_URL = "https://api.webcrawlerapi.com";
     private static final int DEFAULT_POLL_DELAY_MS = 5000;
     private static final int INITIAL_CRAWL_POLL_DELAY_MS = 2000;
+    private static final int DEFAULT_SCRAPE_POLL_DELAY_MS = 2000;
+    private static final int SCRAPE_MAX_POLLS = 1000;
+    private static final long SCRAPE_MAX_WAIT_MS = 400 * 1000L;
     private static final int DEFAULT_AGENT_POLL_DELAY_MS = 2000;
     private static final int DEFAULT_MAX_POLLS = 100;
     private static final int DEFAULT_MAX_AGE = 0;
@@ -298,104 +301,125 @@ public class WebCrawlerAPI {
     }
 
     /**
-     * Scrape a single page (synchronous - waits for completion)
+     * Scrape a single page. Starts an async scrape and polls until it finishes (done / error),
+     * waiting at most {@value #SCRAPE_MAX_WAIT_MS} ms (400 seconds) in total.
      *
      * @param url The URL to scrape
      * @param scrapeType Type of content to extract: "html", "cleaned", or "markdown"
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String scrapeType) throws WebCrawlerAPIException {
-        return scrape(url, toOutputFormats(scrapeType), DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
+        return scrape(url, toOutputFormats(scrapeType), SCRAPE_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page synchronously.
+     * Scrape a single page (async start + polling, up to 400 seconds).
      *
      * @param url The URL to scrape
      * @param outputFormats Content formats to extract
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String[] outputFormats) throws WebCrawlerAPIException {
-        return scrape(url, outputFormats, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
+        return scrape(url, outputFormats, SCRAPE_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page with custom max polls
+     * Scrape a single page with custom max polls (still bounded by the 400 second overall limit).
      *
      * @param url The URL to scrape
      * @param scrapeType Type of content to extract
      * @param maxPolls Maximum number of polling attempts
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String scrapeType, int maxPolls) throws WebCrawlerAPIException {
         return scrape(url, toOutputFormats(scrapeType), maxPolls, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page with custom max polls.
+     * Scrape a single page with custom max polls (still bounded by the 400 second overall limit).
      *
      * @param url The URL to scrape
      * @param outputFormats Content formats to extract
-     * @param maxPolls Deprecated for the sync endpoint. Kept for backward compatibility.
+     * @param maxPolls Maximum number of polling attempts
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String[] outputFormats, int maxPolls) throws WebCrawlerAPIException {
         return scrape(url, outputFormats, maxPolls, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page with custom max polls and max_age cache control
+     * Scrape a single page with custom max polls and max_age cache control.
      *
      * @param url The URL to scrape
      * @param scrapeType Type of content to extract
      * @param maxPolls Maximum number of polling attempts
      * @param maxAge Cache age in seconds (0 to bypass cache)
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String scrapeType, int maxPolls, int maxAge) throws WebCrawlerAPIException {
         return scrape(url, toOutputFormats(scrapeType), maxPolls, maxAge);
     }
 
     /**
-     * Scrape a single page with custom max_age cache control.
+     * Scrape a single page with custom max polls and max_age cache control. Starts the scrape
+     * via {@link #scrapeAsync(String, String[], int)} and polls {@link #getScrape(String)}
+     * (using the server's recommended_pull_delay_ms, fallback 2s) until the status is done or
+     * error. Stops after {@code maxPolls} polls or 400 seconds, whichever comes first.
      *
      * @param url The URL to scrape
      * @param outputFormats Content formats to extract
-     * @param maxPolls Deprecated for the sync endpoint. Kept for backward compatibility.
+     * @param maxPolls Maximum number of polling attempts
      * @param maxAge Cache age in seconds (0 to bypass cache)
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String[] outputFormats, int maxPolls, int maxAge) throws WebCrawlerAPIException {
-        StringBuilder jsonBody = new StringBuilder();
-        jsonBody.append("{");
-        jsonBody.append("\"url\":\"").append(escapeJson(url)).append("\"");
-        if (outputFormats != null && outputFormats.length > 0) {
-            jsonBody.append(",\"output_formats\":").append(buildJsonStringArray(outputFormats));
-        }
-        jsonBody.append(",\"max_age\":").append(maxAge);
-        jsonBody.append("}");
-
-        String response = sendRequest(baseUrl + "/v2/scrape", "POST", jsonBody.toString());
-        return parseScrapeResult(response);
+        String scrapeId = scrapeAsync(url, outputFormats, maxAge);
+        return pollScrape(scrapeId, maxPolls);
     }
 
     /**
      * Scrape a single page using the full {@link ScrapeOptions} parameter set (webhook_url,
-     * clean_selectors, actions, prompt, response_schema, main_content_only, max_age).
+     * clean_selectors, actions, prompt, response_schema, main_content_only, max_age). Starts
+     * an async scrape and polls until done / error (up to 400 seconds).
      *
      * @param options Scrape request options
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(ScrapeOptions options) throws WebCrawlerAPIException {
-        String response = sendRequest(baseUrl + "/v2/scrape", "POST", buildScrapeRequestJson(options));
-        return parseScrapeResult(response);
+        String scrapeId = scrapeAsync(options);
+        return pollScrape(scrapeId, SCRAPE_MAX_POLLS);
+    }
+
+    private ScrapeResult pollScrape(String scrapeId, int maxPolls) throws WebCrawlerAPIException {
+        long startedAt = System.currentTimeMillis();
+        int delayMs = DEFAULT_SCRAPE_POLL_DELAY_MS;
+        int polls = 0;
+        while (polls < maxPolls) {
+            ScrapeResult result = getScrape(scrapeId);
+            if ("done".equals(result.status) || "error".equals(result.status)) {
+                return result;
+            }
+            delayMs = result.recommendedPullDelayMs > 0 ? result.recommendedPullDelayMs : DEFAULT_SCRAPE_POLL_DELAY_MS;
+            long remainingMs = SCRAPE_MAX_WAIT_MS - (System.currentTimeMillis() - startedAt);
+            if (remainingMs <= 0) {
+                break;
+            }
+            try {
+                Thread.sleep(Math.min((long) delayMs, remainingMs));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new WebCrawlerAPIException("interrupted", "Polling was interrupted");
+            }
+            polls++;
+        }
+        throw new WebCrawlerAPIException("timeout", "Scraping took too long, please retry or increase the number of polling retries");
     }
 
     /**
@@ -691,6 +715,7 @@ public class WebCrawlerAPI {
         result.pageTitle = extractJsonValue(json, "page_title");
         result.links = extractJsonStringArray(json, "links");
         result.structuredDataJson = extractJsonRawObject(json, "structured_data");
+        result.recommendedPullDelayMs = extractJsonInt(json, "recommended_pull_delay_ms");
 
         // Map content field based on available data
         // V2 API returns specific fields (markdown, raw_content, cleaned_content) instead of generic "content"
@@ -1483,6 +1508,8 @@ public class WebCrawlerAPI {
         public String[] links = new String[0];
         /** Raw JSON of the structured_data field (present when a response_schema/prompt was used). */
         public String structuredDataJson;
+        /** Server-recommended delay before the next poll, in ms (0 when absent). */
+        public int recommendedPullDelayMs;
 
         @Override
         public String toString() {

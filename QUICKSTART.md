@@ -88,7 +88,7 @@ for (CrawlItem item : result.items) {
 }
 ```
 
-### scrape() - Scrape one page (synchronous)
+### scrape() - Scrape one page (waits up to 400 seconds)
 
 ```java
 ScrapeResult result = client.scrape(

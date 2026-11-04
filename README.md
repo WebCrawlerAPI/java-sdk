@@ -119,7 +119,7 @@ for (CrawlItem item : result.items) {
 
 #### scrape()
 
-Scrape a single page synchronously (waits for completion).
+Scrape a single page. Starts an async scrape and polls until it finishes (done or error), using the server-recommended poll delay. Waits at most 400 seconds in total and throws `WebCrawlerAPIException` with code `timeout` if the scrape does not finish; `maxPolls` additionally caps the number of polls.
 
 ```java
 ScrapeResult scrape(String url, String scrapeType)
@@ -129,7 +129,7 @@ ScrapeResult scrape(String url, String scrapeType, int maxPolls)
 **Parameters:**
 - `url` - The URL to scrape
 - `scrapeType` - Type of content to extract: `"html"`, `"cleaned"`, or `"markdown"`
-- `maxPolls` - (Optional) Maximum polling attempts (default: 100)
+- `maxPolls` - (Optional) Maximum polling attempts (default: 1000, bounded by the 400 second limit)
 
 **Returns:** `ScrapeResult` containing the scraped content
 
