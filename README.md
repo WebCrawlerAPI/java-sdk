@@ -141,6 +141,39 @@ if ("done".equals(result.status)) {
 }
 ```
 
+#### Batch scrape (`scrape(List<String>, ...)`)
+
+Pass a list of URLs to `scrape()` to scrape them as one batch. The SDK creates the batch, polls until it is `completed`, `failed` or `cancelled`, and returns the first page of items plus the `next` cursor.
+
+```java
+BatchScrapeResult scrape(List<String> urls, String scrapeType)
+BatchScrapeResult scrape(List<String> urls, String[] outputFormats)
+BatchScrapeResult scrape(BatchScrapeOptions options)   // full options
+```
+
+Helpers: `scrapeBatchAsync(options)` (create, no waiting), `getBatch(id, limit, cursor)`, `getBatchErrors(id)`, `cancelBatch(id)`.
+
+```java
+BatchScrapeResult batch = client.scrape(new BatchScrapeOptions(
+        "https://example.com/", "https://example.com/pricing")
+        .outputFormats("markdown")
+        .maxConcurrency(5));
+
+System.out.println(batch.status + " " + batch.completed + "/" + batch.total);
+for (BatchScrapeItem item : batch.data) {
+    System.out.println(item.url + " -> " + item.status + " " + item.markdownUrl);
+}
+// Next page
+if (!batch.next.isEmpty()) {
+    BatchScrapeResult page2 = client.getBatch(batch.id, 100, batch.next);
+}
+// URLs rejected at creation: batch.invalidUrls
+```
+
+Options: `outputFormats`, `mainContentOnly`, `cleanSelectors`, `maxConcurrency`, `ignoreInvalidUrls`, `webhookUrl`, `maxAge`, `respectRobotsTxt`, plus `limit`, `maxPolls`, `pollDelayMs` for polling.
+
+Full batch documentation (every method, options, pagination, errors, cancel, webhooks): [docs/batch-scrape.md](docs/batch-scrape.md).
+
 #### scrapeAsync()
 
 Start a scrape job asynchronously (returns immediately).

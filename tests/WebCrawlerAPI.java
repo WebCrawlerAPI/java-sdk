@@ -5,6 +5,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,9 @@ public class WebCrawlerAPI {
     private static final String DEFAULT_BASE_URL = "https://api.webcrawlerapi.com";
     private static final int DEFAULT_POLL_DELAY_MS = 5000;
     private static final int INITIAL_CRAWL_POLL_DELAY_MS = 2000;
+    private static final int DEFAULT_SCRAPE_POLL_DELAY_MS = 2000;
+    private static final int SCRAPE_MAX_POLLS = 1000;
+    private static final long SCRAPE_MAX_WAIT_MS = 400 * 1000L;
     private static final int DEFAULT_AGENT_POLL_DELAY_MS = 2000;
     private static final int DEFAULT_MAX_POLLS = 100;
     private static final int DEFAULT_MAX_AGE = 0;
@@ -298,104 +302,125 @@ public class WebCrawlerAPI {
     }
 
     /**
-     * Scrape a single page (synchronous - waits for completion)
+     * Scrape a single page. Starts an async scrape and polls until it finishes (done / error),
+     * waiting at most {@value #SCRAPE_MAX_WAIT_MS} ms (400 seconds) in total.
      *
      * @param url The URL to scrape
      * @param scrapeType Type of content to extract: "html", "cleaned", or "markdown"
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String scrapeType) throws WebCrawlerAPIException {
-        return scrape(url, toOutputFormats(scrapeType), DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
+        return scrape(url, toOutputFormats(scrapeType), SCRAPE_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page synchronously.
+     * Scrape a single page (async start + polling, up to 400 seconds).
      *
      * @param url The URL to scrape
      * @param outputFormats Content formats to extract
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String[] outputFormats) throws WebCrawlerAPIException {
-        return scrape(url, outputFormats, DEFAULT_MAX_POLLS, DEFAULT_MAX_AGE);
+        return scrape(url, outputFormats, SCRAPE_MAX_POLLS, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page with custom max polls
+     * Scrape a single page with custom max polls (still bounded by the 400 second overall limit).
      *
      * @param url The URL to scrape
      * @param scrapeType Type of content to extract
      * @param maxPolls Maximum number of polling attempts
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String scrapeType, int maxPolls) throws WebCrawlerAPIException {
         return scrape(url, toOutputFormats(scrapeType), maxPolls, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page with custom max polls.
+     * Scrape a single page with custom max polls (still bounded by the 400 second overall limit).
      *
      * @param url The URL to scrape
      * @param outputFormats Content formats to extract
-     * @param maxPolls Deprecated for the sync endpoint. Kept for backward compatibility.
+     * @param maxPolls Maximum number of polling attempts
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String[] outputFormats, int maxPolls) throws WebCrawlerAPIException {
         return scrape(url, outputFormats, maxPolls, DEFAULT_MAX_AGE);
     }
 
     /**
-     * Scrape a single page with custom max polls and max_age cache control
+     * Scrape a single page with custom max polls and max_age cache control.
      *
      * @param url The URL to scrape
      * @param scrapeType Type of content to extract
      * @param maxPolls Maximum number of polling attempts
      * @param maxAge Cache age in seconds (0 to bypass cache)
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String scrapeType, int maxPolls, int maxAge) throws WebCrawlerAPIException {
         return scrape(url, toOutputFormats(scrapeType), maxPolls, maxAge);
     }
 
     /**
-     * Scrape a single page with custom max_age cache control.
+     * Scrape a single page with custom max polls and max_age cache control. Starts the scrape
+     * via {@link #scrapeAsync(String, String[], int)} and polls {@link #getScrape(String)}
+     * (using the server's recommended_pull_delay_ms, fallback 2s) until the status is done or
+     * error. Stops after {@code maxPolls} polls or 400 seconds, whichever comes first.
      *
      * @param url The URL to scrape
      * @param outputFormats Content formats to extract
-     * @param maxPolls Deprecated for the sync endpoint. Kept for backward compatibility.
+     * @param maxPolls Maximum number of polling attempts
      * @param maxAge Cache age in seconds (0 to bypass cache)
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(String url, String[] outputFormats, int maxPolls, int maxAge) throws WebCrawlerAPIException {
-        StringBuilder jsonBody = new StringBuilder();
-        jsonBody.append("{");
-        jsonBody.append("\"url\":\"").append(escapeJson(url)).append("\"");
-        if (outputFormats != null && outputFormats.length > 0) {
-            jsonBody.append(",\"output_formats\":").append(buildJsonStringArray(outputFormats));
-        }
-        jsonBody.append(",\"max_age\":").append(maxAge);
-        jsonBody.append("}");
-
-        String response = sendRequest(baseUrl + "/v2/scrape", "POST", jsonBody.toString());
-        return parseScrapeResult(response);
+        String scrapeId = scrapeAsync(url, outputFormats, maxAge);
+        return pollScrape(scrapeId, maxPolls);
     }
 
     /**
      * Scrape a single page using the full {@link ScrapeOptions} parameter set (webhook_url,
-     * clean_selectors, actions, prompt, response_schema, main_content_only, max_age).
+     * clean_selectors, actions, prompt, response_schema, main_content_only, max_age). Starts
+     * an async scrape and polls until done / error (up to 400 seconds).
      *
      * @param options Scrape request options
      * @return ScrapeResult containing the scraped content
-     * @throws WebCrawlerAPIException if the request fails
+     * @throws WebCrawlerAPIException if the request fails or polling times out
      */
     public ScrapeResult scrape(ScrapeOptions options) throws WebCrawlerAPIException {
-        String response = sendRequest(baseUrl + "/v2/scrape", "POST", buildScrapeRequestJson(options));
-        return parseScrapeResult(response);
+        String scrapeId = scrapeAsync(options);
+        return pollScrape(scrapeId, SCRAPE_MAX_POLLS);
+    }
+
+    private ScrapeResult pollScrape(String scrapeId, int maxPolls) throws WebCrawlerAPIException {
+        long startedAt = System.currentTimeMillis();
+        int delayMs = DEFAULT_SCRAPE_POLL_DELAY_MS;
+        int polls = 0;
+        while (polls < maxPolls) {
+            ScrapeResult result = getScrape(scrapeId);
+            if ("done".equals(result.status) || "error".equals(result.status)) {
+                return result;
+            }
+            delayMs = result.recommendedPullDelayMs > 0 ? result.recommendedPullDelayMs : DEFAULT_SCRAPE_POLL_DELAY_MS;
+            long remainingMs = SCRAPE_MAX_WAIT_MS - (System.currentTimeMillis() - startedAt);
+            if (remainingMs <= 0) {
+                break;
+            }
+            try {
+                Thread.sleep(Math.min((long) delayMs, remainingMs));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new WebCrawlerAPIException("interrupted", "Polling was interrupted");
+            }
+            polls++;
+        }
+        throw new WebCrawlerAPIException("timeout", "Scraping took too long, please retry or increase the number of polling retries");
     }
 
     /**
@@ -493,6 +518,169 @@ public class WebCrawlerAPI {
     public ScrapeResult getScrape(String scrapeId) throws WebCrawlerAPIException {
         String response = sendRequest(baseUrl + "/v2/scrape/" + scrapeId, "GET", null);
         return parseScrapeResult(response);
+    }
+
+    // ==================== Batch scrape ====================
+
+    /**
+     * Scrape a list of URLs as one batch. Creates the batch, polls until it finishes
+     * (completed / failed / cancelled) and returns the first page of items plus the
+     * {@code next} cursor (fetch more with {@link #getBatch(String, Integer, String)}).
+     * Invalid URLs are reported in {@link BatchScrapeResult#invalidUrls}.
+     *
+     * @param urls URLs to scrape
+     * @param scrapeType Output format: "markdown", "cleaned", "html", "links" or "images" (null for the default)
+     * @return BatchScrapeResult with progress counters and the first page of items
+     * @throws WebCrawlerAPIException if the request fails or polling times out
+     */
+    public BatchScrapeResult scrape(List<String> urls, String scrapeType) throws WebCrawlerAPIException {
+        return scrape(new BatchScrapeOptions(urls).outputFormats(toOutputFormats(scrapeType)));
+    }
+
+    /**
+     * Scrape a list of URLs as one batch with several output formats. See
+     * {@link #scrape(List, String)}.
+     *
+     * @param urls URLs to scrape
+     * @param outputFormats Output formats (null for the default)
+     * @return BatchScrapeResult with progress counters and the first page of items
+     * @throws WebCrawlerAPIException if the request fails or polling times out
+     */
+    public BatchScrapeResult scrape(List<String> urls, String[] outputFormats) throws WebCrawlerAPIException {
+        return scrape(new BatchScrapeOptions(urls).outputFormats(outputFormats));
+    }
+
+    /**
+     * Scrape a list of URLs as one batch using the full {@link BatchScrapeOptions} parameter set.
+     * Creates the batch and polls until it finishes (up to {@code options.maxPolls} polls).
+     *
+     * @param options Batch scrape request options
+     * @return BatchScrapeResult with progress counters, the first page of items and the next cursor
+     * @throws WebCrawlerAPIException if the request fails or polling times out
+     */
+    public BatchScrapeResult scrape(BatchScrapeOptions options) throws WebCrawlerAPIException {
+        BatchScrapeCreated created = scrapeBatchAsync(options);
+        for (int polls = 0; polls < options.maxPolls; polls++) {
+            BatchScrapeResult result = getBatch(created.id, options.limit, null);
+            if (isTerminalBatchStatus(result.status)) {
+                result.invalidUrls = created.invalidUrls;
+                return result;
+            }
+            try {
+                Thread.sleep(options.pollDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new WebCrawlerAPIException("interrupted", "Polling was interrupted");
+            }
+        }
+        throw new WebCrawlerAPIException("timeout", "Batch scrape took too long, please retry or increase the number of polling retries");
+    }
+
+    /**
+     * Create a batch scrape without waiting for it (POST /v2/batch/scrape).
+     *
+     * @param options Batch scrape request options
+     * @return BatchScrapeCreated with the batch id, status URL and rejected URLs
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public BatchScrapeCreated scrapeBatchAsync(BatchScrapeOptions options) throws WebCrawlerAPIException {
+        if (options == null || options.urls == null || options.urls.isEmpty()) {
+            throw new IllegalArgumentException("urls must not be empty");
+        }
+        String response = sendRequest(baseUrl + "/v2/batch/scrape", "POST", buildBatchScrapeRequestJson(options));
+        BatchScrapeCreated created = new BatchScrapeCreated();
+        created.id = extractJsonValue(response, "id");
+        created.statusUrl = extractJsonValue(response, "status_url");
+        if (created.id == null || created.id.isEmpty()) {
+            throw new WebCrawlerAPIException("invalid_response", "Failed to get batch ID from response");
+        }
+        for (String obj : extractJsonObjects(response, "invalid_urls")) {
+            BatchScrapeInvalidUrl invalid = new BatchScrapeInvalidUrl();
+            invalid.url = extractJsonValue(obj, "url");
+            invalid.errorCode = extractJsonValue(obj, "error_code");
+            invalid.errorMessage = extractJsonValue(obj, "error_message");
+            created.invalidUrls.add(invalid);
+        }
+        return created;
+    }
+
+    /**
+     * Get batch progress and one page of items (GET /v2/batch/scrape/:id).
+     *
+     * @param batchId Batch ID
+     * @param limit Items per page, 1 to 500 (null for the default of 100)
+     * @param cursor {@code next} value from the previous page (null for the first page)
+     * @return BatchScrapeResult
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public BatchScrapeResult getBatch(String batchId, Integer limit, String cursor) throws WebCrawlerAPIException {
+        StringBuilder url = new StringBuilder(baseUrl + "/v2/batch/scrape/" + urlEncode(batchId));
+        String sep = "?";
+        if (limit != null) {
+            url.append(sep).append("limit=").append(limit);
+            sep = "&";
+        }
+        if (cursor != null && !cursor.isEmpty()) {
+            url.append(sep).append("cursor=").append(urlEncode(cursor));
+        }
+        String json = sendRequest(url.toString(), "GET", null);
+        BatchScrapeResult result = new BatchScrapeResult();
+        result.id = extractJsonValue(json, "id");
+        result.status = extractJsonValue(json, "status");
+        result.total = extractJsonInt(json, "total");
+        result.completed = extractJsonInt(json, "completed");
+        result.failed = extractJsonInt(json, "failed");
+        result.canceled = extractJsonInt(json, "canceled");
+        for (String obj : extractJsonObjects(json, "data")) {
+            BatchScrapeItem item = new BatchScrapeItem();
+            item.url = extractJsonValue(obj, "url");
+            item.status = extractJsonValue(obj, "status");
+            item.pageStatusCode = extractJsonInt(obj, "page_status_code");
+            item.title = extractJsonValue(obj, "title");
+            item.markdownUrl = extractJsonValue(obj, "markdown_url");
+            item.cleanedUrl = extractJsonValue(obj, "cleaned_url");
+            item.htmlUrl = extractJsonValue(obj, "html_url");
+            item.fromCache = extractJsonBoolean(obj, "from_cache");
+            item.errorCode = extractJsonValue(obj, "error_code");
+            item.errorMessage = extractJsonValue(obj, "error_message");
+            result.data.add(item);
+        }
+        int dataEnd = json.lastIndexOf(']');
+        String tail = dataEnd >= 0 ? json.substring(dataEnd) : json;
+        String next = extractJsonValue(tail, "next");
+        result.next = next == null ? "" : next;
+        return result;
+    }
+
+    /**
+     * List failed URLs of a batch (GET /v2/batch/scrape/:id/errors).
+     *
+     * @param batchId Batch ID
+     * @return BatchScrapeErrors with failed URLs and URLs blocked by robots.txt
+     * @throws WebCrawlerAPIException if the request fails
+     */
+    public BatchScrapeErrors getBatchErrors(String batchId) throws WebCrawlerAPIException {
+        String json = sendRequest(baseUrl + "/v2/batch/scrape/" + urlEncode(batchId) + "/errors", "GET", null);
+        BatchScrapeErrors result = new BatchScrapeErrors();
+        for (String obj : extractJsonObjects(json, "errors")) {
+            BatchScrapeError err = new BatchScrapeError();
+            err.url = extractJsonValue(obj, "url");
+            err.errorCode = extractJsonValue(obj, "error_code");
+            err.errorMessage = extractJsonValue(obj, "error_message");
+            result.errors.add(err);
+        }
+        result.robotsBlocked = extractJsonStringArray(json, "robots_blocked");
+        return result;
+    }
+
+    /**
+     * Cancel a running batch (DELETE /v2/batch/scrape/:id). Items that did not start are not charged.
+     *
+     * @param batchId Batch ID
+     * @throws WebCrawlerAPIException if the request fails (400 if the batch already finished)
+     */
+    public void cancelBatch(String batchId) throws WebCrawlerAPIException {
+        sendRequest(baseUrl + "/v2/batch/scrape/" + urlEncode(batchId), "DELETE", null);
     }
 
     /**
@@ -691,6 +879,7 @@ public class WebCrawlerAPI {
         result.pageTitle = extractJsonValue(json, "page_title");
         result.links = extractJsonStringArray(json, "links");
         result.structuredDataJson = extractJsonRawObject(json, "structured_data");
+        result.recommendedPullDelayMs = extractJsonInt(json, "recommended_pull_delay_ms");
 
         // Map content field based on available data
         // V2 API returns specific fields (markdown, raw_content, cleaned_content) instead of generic "content"
@@ -1146,6 +1335,77 @@ public class WebCrawlerAPI {
         return json.toString();
     }
 
+    private static boolean isTerminalBatchStatus(String status) {
+        return "completed".equals(status) || "failed".equals(status)
+                || "cancelled".equals(status) || "canceled".equals(status);
+    }
+
+    private static String urlEncode(String value) {
+        try {
+            return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Returns the top-level JSON objects of the array stored under {@code key} (string-aware). */
+    private List<String> extractJsonObjects(String json, String key) {
+        List<String> objects = new ArrayList<>();
+        int keyIndex = json.indexOf("\"" + key + "\":");
+        if (keyIndex == -1) {
+            return objects;
+        }
+        int i = keyIndex + key.length() + 3;
+        while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+        if (i >= json.length() || json.charAt(i) != '[') {
+            return objects;
+        }
+        int depth = 0;
+        int objStart = -1;
+        boolean inString = false;
+        boolean escaped = false;
+        for (; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+            } else if (c == '{') {
+                if (depth == 1) objStart = i;
+                depth++;
+            } else if (c == '[') {
+                depth++;
+            } else if (c == '}' || c == ']') {
+                depth--;
+                if (c == '}' && depth == 1 && objStart != -1) {
+                    objects.add(json.substring(objStart, i + 1));
+                    objStart = -1;
+                }
+                if (depth == 0) break;
+            }
+        }
+        return objects;
+    }
+
+    private static String buildBatchScrapeRequestJson(BatchScrapeOptions options) {
+        StringBuilder json = new StringBuilder("{");
+        appendStringArrayField(json, "urls", options.urls.toArray(new String[0]));
+        appendStringArrayField(json, "output_formats", options.outputFormats);
+        appendBoolField(json, "main_content_only", options.mainContentOnly);
+        appendField(json, "clean_selectors", options.cleanSelectors);
+        if (options.maxConcurrency != null) appendIntField(json, "max_concurrency", options.maxConcurrency);
+        appendBoolField(json, "ignore_invalid_urls", options.ignoreInvalidUrls);
+        appendField(json, "webhook_url", options.webhookUrl);
+        appendIntField(json, "max_age", options.maxAge);
+        appendBoolField(json, "respect_robots_txt", options.respectRobotsTxt);
+        json.append("}");
+        return json.toString();
+    }
+
     private static String buildCrawlRequestJson(CrawlOptions options) {
         StringBuilder json = new StringBuilder("{");
         appendField(json, "url", options.url);
@@ -1483,11 +1743,160 @@ public class WebCrawlerAPI {
         public String[] links = new String[0];
         /** Raw JSON of the structured_data field (present when a response_schema/prompt was used). */
         public String structuredDataJson;
+        /** Server-recommended delay before the next poll, in ms (0 when absent). */
+        public int recommendedPullDelayMs;
 
         @Override
         public String toString() {
             return "ScrapeResult{status='" + status + "', url='" + url + "'}";
         }
+    }
+
+    /**
+     * Request for batch scrape: {@link #scrape(BatchScrapeOptions)} / {@link #scrapeBatchAsync(BatchScrapeOptions)}.
+     */
+    public static class BatchScrapeOptions {
+        public List<String> urls;
+        public String[] outputFormats;
+        public Boolean mainContentOnly;
+        public String cleanSelectors;
+        /** Max URLs scraped in parallel; null or 0 means no per-batch cap. */
+        public Integer maxConcurrency;
+        public Boolean ignoreInvalidUrls;
+        public String webhookUrl;
+        public int maxAge = DEFAULT_MAX_AGE;
+        public Boolean respectRobotsTxt;
+        /** Items per page when polling (1 to 500, null for the default of 100). */
+        public Integer limit;
+        /** Max status polls in {@link #scrape(BatchScrapeOptions)}. */
+        public int maxPolls = 1000;
+        /** Delay between status polls in ms. */
+        public int pollDelayMs = DEFAULT_SCRAPE_POLL_DELAY_MS;
+
+        public BatchScrapeOptions(List<String> urls) {
+            this.urls = urls;
+        }
+
+        public BatchScrapeOptions(String... urls) {
+            this.urls = Arrays.asList(urls);
+        }
+
+        public BatchScrapeOptions outputFormats(String... outputFormats) {
+            this.outputFormats = outputFormats;
+            return this;
+        }
+
+        public BatchScrapeOptions mainContentOnly(boolean mainContentOnly) {
+            this.mainContentOnly = mainContentOnly;
+            return this;
+        }
+
+        public BatchScrapeOptions cleanSelectors(String cleanSelectors) {
+            this.cleanSelectors = cleanSelectors;
+            return this;
+        }
+
+        public BatchScrapeOptions maxConcurrency(int maxConcurrency) {
+            this.maxConcurrency = maxConcurrency;
+            return this;
+        }
+
+        public BatchScrapeOptions ignoreInvalidUrls(boolean ignoreInvalidUrls) {
+            this.ignoreInvalidUrls = ignoreInvalidUrls;
+            return this;
+        }
+
+        public BatchScrapeOptions webhookUrl(String webhookUrl) {
+            this.webhookUrl = webhookUrl;
+            return this;
+        }
+
+        public BatchScrapeOptions maxAge(int maxAge) {
+            this.maxAge = maxAge;
+            return this;
+        }
+
+        public BatchScrapeOptions respectRobotsTxt(boolean respectRobotsTxt) {
+            this.respectRobotsTxt = respectRobotsTxt;
+            return this;
+        }
+
+        public BatchScrapeOptions limit(int limit) {
+            this.limit = limit;
+            return this;
+        }
+
+        public BatchScrapeOptions maxPolls(int maxPolls) {
+            this.maxPolls = maxPolls;
+            return this;
+        }
+
+        public BatchScrapeOptions pollDelayMs(int pollDelayMs) {
+            this.pollDelayMs = pollDelayMs;
+            return this;
+        }
+    }
+
+    /** Response of {@link #scrapeBatchAsync(BatchScrapeOptions)}. */
+    public static class BatchScrapeCreated {
+        public String id;
+        public String statusUrl;
+        public List<BatchScrapeInvalidUrl> invalidUrls = new ArrayList<>();
+    }
+
+    /** A URL rejected when the batch was created. */
+    public static class BatchScrapeInvalidUrl {
+        public String url;
+        public String errorCode;
+        public String errorMessage;
+    }
+
+    /** Batch progress and one page of items. */
+    public static class BatchScrapeResult {
+        public String id;
+        /** scraping, completed, failed or cancelled. */
+        public String status;
+        public int total;
+        public int completed;
+        public int failed;
+        public int canceled;
+        public List<BatchScrapeItem> data = new ArrayList<>();
+        /** Cursor for the next page, empty on the last page. */
+        public String next = "";
+        /** URLs rejected at creation (set by {@link #scrape(BatchScrapeOptions)}). */
+        public List<BatchScrapeInvalidUrl> invalidUrls = new ArrayList<>();
+
+        @Override
+        public String toString() {
+            return "BatchScrapeResult{id='" + id + "', status='" + status + "', total=" + total + "}";
+        }
+    }
+
+    /** One item of a batch scrape. */
+    public static class BatchScrapeItem {
+        public String url;
+        public String status;
+        public int pageStatusCode;
+        public String title;
+        public String markdownUrl;
+        public String cleanedUrl;
+        public String htmlUrl;
+        public boolean fromCache;
+        public String errorCode;
+        public String errorMessage;
+    }
+
+    /** Response of {@link #getBatchErrors(String)}. */
+    public static class BatchScrapeErrors {
+        public List<BatchScrapeError> errors = new ArrayList<>();
+        public String[] robotsBlocked = new String[0];
+    }
+
+    /** A failed URL of a batch. */
+    public static class BatchScrapeError {
+        public String url;
+        public String errorCode;
+        public String errorMessage;
     }
 
     /**

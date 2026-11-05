@@ -43,7 +43,7 @@ javac -d bin WebCrawlerAPI.java
 
 # Compile test files
 echo "Compiling test files..."
-javac -cp bin -d bin WebCrawlerAPITest.java IntegrationTest.java
+javac -cp bin -d bin WebCrawlerAPITest.java BatchScrapeTest.java IntegrationTest.java
 
 if [ $? -ne 0 ]; then
     echo "Compilation failed!"
@@ -60,6 +60,7 @@ echo "=========================================="
 echo
 java -cp bin WebCrawlerAPITest
 UNIT_EXIT=$?
+java -cp bin BatchScrapeTest || UNIT_EXIT=1
 
 echo
 echo
